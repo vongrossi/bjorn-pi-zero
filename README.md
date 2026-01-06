@@ -6,6 +6,7 @@ Upstream project: https://github.com/infinition/Bjorn
 
 ## Quick start
 - Install guide: `INSTALL.md`
+- Tool guide (how it works + brute-force modules): `GUIDE.md`
 - Changelog / checkpoint: `CHANGELOG_LOCAL.md`
 - Troubleshooting: `TROUBLESHOOTING.md`
 
@@ -27,9 +28,8 @@ Upstream project: https://github.com/infinition/Bjorn
   ```
 - Web UI:
   - `http://<PI_IP>:8000/`
-  - If port 8000 is busy, it may move to 8001.
 
 ## Notes for this fork
 - Uses a venv with `--system-site-packages` and apt-first strategy for heavy packages.
 - Python 3.13 removes `telnetlib`. Telnet actions are disabled cleanly when unavailable.
-- Web UI auto-increments to port 8001 if 8000 is busy.
+- Web UI binds to port 8000 and retries if the port is busy.
