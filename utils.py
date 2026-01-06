@@ -149,7 +149,8 @@ class WebUtils:
         try:
             log_file_path = self.shared_data.webconsolelog
             if not os.path.exists(log_file_path):
-                subprocess.Popen(f"sudo tail -f /home/bjorn/Bjorn/data/logs/* > {log_file_path}", shell=True)
+                # Create an empty log file if missing to avoid 500s on first access.
+                open(log_file_path, 'a').close()
 
             with open(log_file_path, 'r') as log_file:
                 log_lines = log_file.readlines()
@@ -416,28 +417,66 @@ class WebUtils:
 
     def scan_wifi(self, handler):
         try:
-            result = subprocess.Popen(['sudo', 'iwlist', 'wlan0', 'scan'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = result.communicate()
-            if result.returncode != 0:
-                raise Exception(stderr)
-            networks = self.parse_scan_result(stdout)
-            self.logger.info(f"Found {len(networks)} networks")
-            current_ssid = subprocess.Popen(['iwgetid', '-r'], stdout=subprocess.PIPE, text=True)
-            ssid_out, ssid_err = current_ssid.communicate()
-            if current_ssid.returncode != 0:
-                raise Exception(ssid_err)
-            current_ssid = ssid_out.strip()
-            self.logger.info(f"Current SSID: {current_ssid}")
+            networks, current_ssid, error = self._scan_wifi_nmcli()
+            if networks is None:
+                networks, current_ssid, error = self._scan_wifi_iwlist()
             handler.send_response(200)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
-            handler.wfile.write(json.dumps({"networks": networks, "current_ssid": current_ssid}).encode('utf-8'))
+            handler.wfile.write(json.dumps({
+                "networks": networks or [],
+                "current_ssid": current_ssid or "",
+                "error": error
+            }).encode('utf-8'))
         except Exception as e:
-            handler.send_response(500)
+            handler.send_response(200)
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
             self.logger.error(f"Error scanning Wi-Fi networks: {e}")
-            handler.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+            handler.wfile.write(json.dumps({
+                "networks": [],
+                "current_ssid": "",
+                "error": str(e)
+            }).encode('utf-8'))
+
+    def _scan_wifi_nmcli(self):
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "SSID", "dev", "wifi"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                return None, None, result.stderr.strip()
+            networks = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            active = subprocess.run(
+                ["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
+                capture_output=True,
+                text=True
+            )
+            current_ssid = ""
+            if active.returncode == 0:
+                for line in active.stdout.splitlines():
+                    if line.startswith("yes:"):
+                        current_ssid = line.split(":", 1)[1].strip()
+                        break
+            return networks, current_ssid, ""
+        except Exception as e:
+            return None, None, str(e)
+
+    def _scan_wifi_iwlist(self):
+        try:
+            result = subprocess.Popen(['iwlist', 'wlan0', 'scan'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = result.communicate()
+            if result.returncode != 0:
+                return [], "", stderr.strip()
+            networks = self.parse_scan_result(stdout)
+            current_ssid_proc = subprocess.Popen(['iwgetid', '-r'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            ssid_out, ssid_err = current_ssid_proc.communicate()
+            current_ssid = ssid_out.strip() if current_ssid_proc.returncode == 0 else ""
+            return networks, current_ssid, ssid_err.strip()
+        except Exception as e:
+            return [], "", str(e)
 
     def parse_scan_result(self, scan_output):
         networks = []
@@ -777,6 +816,8 @@ method=auto
     def list_files(self, directory):
         files = []
         for entry in os.scandir(directory):
+            if entry.name == ".gitkeep":
+                continue
             if entry.is_dir():
                 files.append({
                     "name": entry.name,
@@ -822,4 +863,3 @@ method=auto
             handler.send_header("Content-type", "application/json")
             handler.end_headers()
             handler.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
-

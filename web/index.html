@@ -139,12 +139,10 @@
                 panel.classList.remove('hidden');
                 panel.classList.add('visible');
                 icon.src = '/web/images/ai.png';
-                stop_orchestrator();
             } else {
                 panel.classList.remove('visible');
                 panel.classList.add('hidden');
                 icon.src = '/web/images/manual.png';
-                start_orchestrator();
             }
             adjustLogConsoleHeight();
         }

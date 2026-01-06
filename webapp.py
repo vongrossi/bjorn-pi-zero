@@ -9,6 +9,7 @@ import signal
 import os
 import gzip
 import io
+import time
 from logger import Logger
 from init_shared import shared_data
 from utils import WebUtils
@@ -167,15 +168,18 @@ class WebThread(threading.Thread):
         """
         while not self.shared_data.webapp_should_exit:
             try:
-                with socketserver.TCPServer(("", self.port), self.handler_class) as httpd:
+                class ReusableTCPServer(socketserver.TCPServer):
+                    allow_reuse_address = True
+
+                with ReusableTCPServer(("", self.port), self.handler_class) as httpd:
                     self.httpd = httpd
                     logger.info(f"Serving at port {self.port}")
                     while not self.shared_data.webapp_should_exit:
                         httpd.handle_request()
             except OSError as e:
                 if e.errno == 98:  # Address already in use error
-                    logger.warning(f"Port {self.port} is in use, trying the next port...")
-                    self.port += 1
+                    logger.warning(f"Port {self.port} is in use, retrying...")
+                    time.sleep(2)
                 else:
                     logger.error(f"Error in web server: {e}")
                     break
